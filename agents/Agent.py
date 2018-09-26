@@ -1,5 +1,5 @@
 class Agent:
-	def __init__(self, env, iterations=400):
+	def __init__(self, env, iterations=20):
 			self.env = env
 			# reward per episode
 			self.rewards = []

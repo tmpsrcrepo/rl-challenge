@@ -2,7 +2,9 @@ from models.Agent import Agent
 
 class RandomAgent(Agent):
 	def action(self, observation):
-		return self.env.action_space.sample()
+		sample = self.env.action_space.sample()
+		print(sample.shape)
+		return sample
 
 	def run(self):
 		done = False

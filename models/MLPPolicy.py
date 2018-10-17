@@ -78,6 +78,7 @@ class MLPPolicy(tf.keras.Model):
 				self.rewards.append(reward)
 
 			loss = self.calculateLoss()
+			self.prev_policy = self.cur_policy
 			sess.run(self.optimizezr.minimize(loss))
 
 	# TODO: easy to plugin different loss function
@@ -88,13 +89,12 @@ class MLPPolicy(tf.keras.Model):
 		loss = 0
 		for t in range(self.T - 1, -1, -1):
 			reward = self.rewards[t]
-			value = self.values[t]
 			observation = self.observations[t]
 			cur = self.cur_policy(observation)
 			pre = self.prev_policy(observation)
 			ratio = tf.clip_by_value(cur/pre, self.min_bound, self.max_bound)
-			R += reward + self.gamma * value_func(observation)
-			adv = R - value
+			R += reward + self.gamma * self.value_func(observation)
+			adv = R - self.value_func(observation)
 			loss += min(cur/pre, ratio) * adv
 
 		self.rewards = []

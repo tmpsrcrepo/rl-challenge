@@ -2,7 +2,7 @@ import numpy as np
 import tensorflow as tf
 
 class MLPPolicy(tf.keras.Model):
-	def __init__(self, actionDim, observationDim, hiddenSize, nLayers, gamma, episilon):
+	def __init__(self, actionDim, observationDim, hiddenSize, nLayers, gamma, episilon, T):
 		super().__init__()
 		self.layers = {}
 		self.observationDim = observationDim
@@ -14,11 +14,21 @@ class MLPPolicy(tf.keras.Model):
 		self.cur_policy, self.value_func = self.getPolicyModel(hiddenSize, nLayers)
 		# initially prev = cur
 		self.prev_policy = self.cur_policy
-		self.adv = tf.get_variable("advantage", [], initializer=tf.constant_initializer(0.))
+		self.min_bound = 1 - self.episilon
+		self.max_bound = 1 + self.episilon
+		self.rewards = []
+		self.values = []
+		self.prev_policies = []
+		self.cur_policies = []
+		self.observations = []
+		self.T = T
+		self.sigma = tf.get_variable("std", (1, self.actionDim), initializer=tf.constant_initializer(0.))
+		# TODO: adaptive learning rate / plugin optimizer
+		self.optimizezr = tf.train.AdamOptimizer(learning_rate = 0.001)
 
 	# TODO: customize the initializer
 	def getPolicyModel(self, hiddenSize, nLayers):
-		mean, std = None, None
+		policy, value = None, None
 		obs = self.observation
 		with tf.variable_scope('policy-model'):
 			input_ = obs
@@ -34,76 +44,63 @@ class MLPPolicy(tf.keras.Model):
 
 			policy = tf.layers.Dense(
 					input_,
-					hiddenSize,
+					self.actionDim,
 					name = 'policy-mean',
 					kernel_initializer=tf.random_normal_initializer())
 
+		# TODO: dist model
 		with tf.variable_scope("value-model"):
 			name = 'value-layer'
-			value = tf.layers.Dense(obs, hiddenSize, 
+			value = tf.layers.Dense(self.observation, 1, 
 				name = name,
 				kernel_initializer=tf.contrib.layers.xavier_initializer(),
 				bias_initializer=tf.zeros_initializer())
 		return policy, value
 
-	def predict(self, observation):
-		output = self.mean(observation)
+	# TODO: customize -> use different distributions
+	def normDist(mean):
+		return np.random.normal(mean, self.sigma)
 
-		self.adv = self.adv + self.gamma * self.value_func(observation)
+	def run(self):
+		with tf.Session() as sess:
+			observation = self.env.reset()
+			for t in range(self.T):
+				self.observations.append(observation)
+				cur_mean, pre_mean,value = sess.run(
+					[self.cur_policy(self.observation), self.prev_policy(self.observation), self.value_func(self.observation)],
+					feed_dict = {self.observation: observation})
+				cur_action = self.normDist(cur_mean)
+				prev_action = self.normDist(pre_mean)
+				observation, reward, done, info = self.env.step(action)
+				self.cur_policies.append(cur_action)
+				self.prev_policies.append(prev_action)
+				self.values.append(value)
+				self.rewards.append(reward)
 
-	def clipRatio(self, observation):
-		ratio = self.cur_policy(observation) / self.prev_policy(observation)
-		if ratio < 1 - self.episilon:
-			1 - self.episilon
-		elif ratio > 1 + self.episilon:
-			1 + self.episilon
-		else:
-			ratio
+			loss = self.calculateLoss()
+			sess.run(self.optimizezr.minimize(loss))
 
 	# TODO: easy to plugin different loss function
-	def updateLoss(self, observation, reward, prediction):
+	def calculateLoss(self):
 		# update loss function
 		# update adv
-		adv = self.adv
-		ratio = clipRatio(observation)
+		R = 0
+		loss = 0
+		for t in range(self.T - 1, -1, -1):
+			reward = self.rewards[t]
+			value = self.values[t]
+			observation = self.observations[t]
+			cur = self.cur_policy(observation)
+			pre = self.prev_policy(observation)
+			ratio = tf.clip_by_value(cur/pre, self.min_bound, self.max_bound)
+			R += reward + self.gamma * value_func(observation)
+			adv = R - value
+			loss += min(cur/pre, ratio) * adv
+
+		self.rewards = []
+		self.values = []
+		self.cur_policies = []
+		self.prev_policies = []
+		self.observations  = []
+		return loss
 		# update the cur policy in the end (prev = cur, cur = new)
-
-	# # TODO: configure how many layers and how many nodes per layer
-	# def getPolicyModel(numLayers = 2, numHiddenNodes = 64):
-	# 	#TODO: share the initializer for each 
-	# 	xavier_initializer=tf.contrib.layers.xavier_initializer(uniform=True)
-	# 	action = tf.placeholder(tf.float, [None, self.actionDim]) # batch size
-	# 	firstLayer = tf.layers.dense(action, numHiddenNodes, 
-	# 		name = 'action_first',
-	# 		kernel_initializer = xavier_initializer)
-	# 	layer = None
-	# 	# first layer (action )
-	# 	for i in range(1, numLayers):
-	# 		layer = tf.layers.dense()
-
-	# 	actionLayer = tf.layers.dense(layer, self.actionDim, name = 'action_mean',
-	# 		kernel_initializer = xavier_initializer)
-	# 	return firstLayer, actionLayer
-
-
-
-		# return random value w/ mean predicted by MLP
-
-	# def __init__(self, actionDim, observationDim, numLayer):
-	# 	self.rewards = [] # rewards
-	# 	self.actions = [] # actions
-	# 	self.advs = [] # advantages
-	# 	self.actionDim = actionDim # output layer of policy model dimension
-	# 	self.observationDim = observationDim # input feature dimension
-	# 	self.valueModel = tf.
-	# 	# two layer MLP
-	# 	self.policyFirstLayer, self.actionMean = getPolicyModel(numLayer)
-		
-	# 	self.actionMean = tf.get_variable("action_mean", shape = [1, 19],
-	# 		initializer = xavier_initializer)
-	# 	self.actionStd = tf.get_variable("action_std", shape = [1, 19],
-	# 		initializer = xavier_initializer)
-
-
-	# def _act(self, observation):
-		
